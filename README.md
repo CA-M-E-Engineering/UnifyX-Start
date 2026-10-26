@@ -2,72 +2,85 @@
 
 [🇺🇸 English](README.md) | [🇨🇳 简体中文](README_zh.md)
 
-UnifyX-start is a lightweight, cross-platform browser launcher specifically designed to run any Web application (like Vue/React frontend projects) in a pure, full-screen Kiosk mode, providing enterprise-grade high availability and monitoring.
+A small Go launcher for dedicated all-in-one kiosks. It displays a web application in a Chromium-based browser's Kiosk/App mode, prevents accidental touch interactions, and restarts the browser when its main process exits.
 
-By controlling the natively installed Chrome/Chromium engine under the hood, it delivers a truly borderless, immersive experience. It also features anti-interference mechanisms, OS shortcut blocking, and auto-recovery from crashes.
+## Requirements
 
-## Key Features ✨
+- Build: **Go 1.26+**.
+- Browser: **Microsoft Edge, Chromium or Chrome for Testing 111+**, using a full desktop build with extension support.
+- Windows, Linux and macOS are supported. OS shortcut lockdown is implemented only for Linux/GNOME.
+- Run one launcher per device with a dedicated `USER_DATA_DIR`.
 
-- **Immersive Kiosk Mode**: Seamlessly displays web pages in full-screen as a standalone App (`--app`) by invoking the local Chrome engine, eliminating regular browser elements like the bookmarks bar, address bar, and security warning bubbles.
-- **Sandboxed Environment**: Automatically isolates Kiosk data from daily user profiles, maintaining an independent runtime directory (e.g., Cache, Cookies, extension configurations) to completely avoid interference.
-- **System-Level Anti-Interference**:
-  - Dynamically injects a dedicated anti-interference Chrome extension: blocks right-clicks, long presses, swipe-to-go-back, pull-to-refresh, long-press Esc, and multi-touch zooming.
-  - Supports optional disabling of OS-level shortcuts (e.g., switching desktops, task view, etc., specifically under Linux/GNOME environments).
-- **Process Watchdog**: Automatically monitors app exits caused by crashes or unexpected closures. The watchdog can automatically restart the application a few seconds after an exit.
-- **Stale Lock Cleanup**: Intelligently cleans up Chrome LevelDB lock files and session recovery prompts ("Chrome didn't shut down correctly") caused by abnormal exits, preventing browser recovery bubbles on the next launch.
+Regular Google Chrome is unsupported: Chrome 137 removed `--load-extension`. This launcher uses one extension-loading mechanism and checks browser branding/version before starting. An incompatible browser produces an error instead of silently opening an unprotected window. [Official Chrome announcement](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/1-g8EFx2BBY)
 
-## Prerequisites 🛠️
-
-- **Golang**: `1.22+` (Required to compile this project)
-- **Chrome / Chromium**: `google-chrome` or `chromium-browser` must be pre-installed on the host system. The application automatically locates common installation paths.
-
-## Run and Build 🚀
-
-### 1. Install Dependencies & Configure Environment
+## Run and build
 
 ```bash
-# Get dependencies
-go mod tidy
-
-# Copy the configuration template
+go mod download
 cp .env.example .env
+go run .
+go run . --url=http://127.0.0.1:3000
+go build -o unifyx_launcher .
 ```
 
-### 2. Run Locally
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+go build -o unifyx_launcher.exe .
+.\unifyx_launcher.exe
+```
+
+Set `BROWSER_PATH` for your installation:
+
+```dotenv
+# Linux
+BROWSER_PATH=/usr/bin/chromium
+# Microsoft Edge on Windows
+# BROWSER_PATH='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+# Unpacked Chrome for Testing on Windows
+# BROWSER_PATH='C:\kiosk\chrome-win64\chrome.exe'
+# macOS
+# BROWSER_PATH='/Applications/Chromium.app/Contents/MacOS/Chromium'
+```
+
+When unset, the launcher searches PATH and common installation locations for each platform. An invalid explicit path is an error; it never silently falls back to another browser.
+
+## Configuration
+
+The launcher reads `.env` from its current working directory. Existing environment variables take precedence over `.env`; `--url` has the highest priority. Relative paths also use the current working directory. Configure a fixed working directory for startup services.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LAUNCH_URL` | `https://www.google.com` | Web application URL |
+| `BROWSER_PATH` | Auto-detect | Microsoft Edge / Chromium / Chrome for Testing executable |
+| `ENABLE_WATCHDOG` | `false` | Restart after the browser main process exits |
+| `DISABLE_OS_SHORTCUTS` | `false` | Apply the existing Linux/GNOME kiosk settings |
+| `USER_DATA_DIR` | `./app_profile` | Dedicated browser profile retaining cookies/cache |
+
+## Behavior
+
+- **Extension lifecycle:** Extract once when the launcher initializes, reuse across browser restarts, and remove on normal launcher shutdown. Extraction errors stop startup.
+- **Fullscreen:** Page API hooks run in the `MAIN` world. Input handlers run in the extension's isolated world; CSS is injected declaratively. Protection is reapplied on navigation, reload and matching frames.
+- **Touch:** Block browser edge navigation, pull-to-refresh and pinch zoom, and hide the cursor. Scrolling inside page containers remains usable. Browser extensions cannot block every OS gesture.
+- **Restart policy:** Wait 3 seconds after the first exit. Consecutive short runs back off through 3, 6, 12, 24 and 30 seconds, capped at 30. A run lasting at least one minute resets the delay to 3 seconds. With the watchdog disabled, launch/runtime failures return a nonzero exit status.
+- **Monitoring scope:** Only browser main-process exits are monitored. Page hangs, network failures and individual renderer crashes are not detected.
+- **Shutdown:** Ctrl+C / SIGTERM cancels restart waits and stops the browser. Linux/macOS send SIGTERM and allow up to five seconds before cleaning up the process group; Windows terminates the browser process tree.
+- **Crash recovery:** Under the single-instance deployment assumption, remove stale Singleton files before each browser start. Repair crash markers using JSON parsing and a temporary-file replacement, preserving unrelated preferences. This does not repair LevelDB data.
+- **OS lockdown:** Retains the existing GNOME changes to shortcuts, workspaces, hot corners, favorites, screen locking and idle settings. These changes persist after launcher exit.
+
+## Validation
 
 ```bash
-# Starts using the .env configuration by default
-go run main.go
-
-# Force a target URL via command line flags (highest priority)
-go run main.go --url=http://127.0.0.1:3000
+go test ./...
+go vet ./...
 ```
 
-### 3. Build Executable
-
-Build a single executable binary for cross-platform deployment:
+Optional real-browser integration checks (Node.js 22+, no npm dependencies, isolated temporary profile):
 
 ```bash
-# Build for MacOS / Linux
-go build -o unifyx_launcher main.go
-
-# Build for Windows
-GOOS=windows GOARCH=amd64 go build -o unifyx_launcher.exe main.go
+BROWSER_PATH=/usr/bin/chromium node tests/browser.mjs
+UNIFYX_TEST_BROWSER=/usr/bin/chromium go test ./internal/launcher
 ```
 
-## Environment Variables ⚙️
-
-Refer to the `.env.example` file. Below are the supported environment variables for `.env`:
-
-| Variable Name | Default Value | Description |
-| ------------- | ------------- | ----------- |
-| `LAUNCH_URL` | `https://www.google.com` | The target URL to open and render in the application. |
-| `ENABLE_WATCHDOG` | `false` | When set to `true`, the watchdog will automatically restart the browser process 3 seconds after it closes or crashes. |
-| `DISABLE_OS_SHORTCUTS` | `false` | When set to `true`, attempts to hijack and disable OS-level (e.g., GNOME) window-switching shortcuts, preventing the user from switching out of the Kiosk app. |
-| `USER_DATA_DIR` | `./app_profile` | Defines the sandbox directory for Chrome caching. A relative path is recommended for a completely independent cache. |
-
-## Technical Details
-
-- The project entirely manages the system's Chrome process lifecycle using Go's `os/exec`.
-- **Anti-Interference Mechanism (Injected Extension)**: Upon every physical start of the Kiosk window, the Go program extracts the embedded `content.js` and `manifest.json` files into the system's temporary directory and injects them via Chrome's `--load-extension` flag. Temporary files are automatically cleaned up when the process closes.
-- Deadlocks or cache states (LevelDB deadlock status) caused by any abnormal app exit will be automatically reset and cleaned during the initialization phase of the next lifecycle, completely eliminating "Restore Pages" safety popups.
+In PowerShell, set `$env:BROWSER_PATH = 'full executable path'` before running `node tests/browser.mjs`. The integration test covers early fullscreen hooks, frames, shortcuts, touch restrictions, real nested scrolling and reinjection after navigation. OS gestures and visible fullscreen behavior still require acceptance testing on the target kiosk.

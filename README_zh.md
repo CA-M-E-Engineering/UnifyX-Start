@@ -2,72 +2,86 @@
 
 [🇺🇸 English](README.md) | [🇨🇳 简体中文](README_zh.md)
 
-UnifyX-start 是一个轻量级、跨平台的浏览器启动器 (Launcher)，专门用于将任何 Web 应用（如前端 Vue/React 项目）以纯净的全屏 (Kiosk) 模式运行，并提供企业级的高可用监控。
+面向一体机的轻量级 Go 启动器，通过基于 Chromium 的浏览器的 Kiosk/App 模式全屏展示 Web 应用，提供触摸防误操作和浏览器主进程退出后的自动重启。
 
-通过底层调用系统安装的 Chrome/Chromium，它实现了真正的无边框沉浸式体验，并包含防拦截、防快捷键干扰和自动崩溃恢复的能力。
+## 运行要求
 
-## 主要特性 ✨
+- 编译：Go **1.26+**。
+- 浏览器：**Microsoft Edge、Chromium 或 Chrome for Testing 111+**，需为支持扩展的完整桌面浏览器。
+- 支持 Windows、Linux、macOS；系统快捷键锁定仅在 Linux/GNOME 上实际执行。
+- 每台设备只运行一个启动器实例，使用专属的 `USER_DATA_DIR`。
 
-- **沉浸式 Kiosk 模式**：通过调用本地 Chrome 引擎，以独立 App (`--app`) 的形式无缝全屏展示网页，消除常规浏览器的书签栏、地址栏及安全警告气泡。
-- **环境沙盒隔离**：自动分离 Kiosk 数据与日常用户配置，拥有独立的运行时目录（如 Cache、Cookies、扩展配置），彼此绝不干扰。
-- **系统级防干扰机制**：
-  - 动态释放并加载专属防拦截 Chrome 扩展：阻止用户右键、长按、滑动返回、下拉刷新、长按 Esc 以及多点触控缩放。
-  - 支持可选禁用操作系统底层快捷键（如切换桌面、任务视图等系统组合键）。
-- **进程看门狗 (Watchdog)**：自动监听由于意外、内存崩溃导致的应用退出，可在退出数秒后自动重新拉起应用。
-- **自动处理残留锁定**：智能清理非正常退出导致的 Chrome LevelDB 锁文件或会话提示（"Chrome didn't shut down correctly"），避免弹出恢复气泡。
+正式版 Google Chrome 不适用于本程序：Chrome 137 起移除了 `--load-extension`。本项目统一使用该参数加载内嵌扩展，启动前会检查浏览器品牌和版本，遇到不兼容浏览器明确报错，不会静默降级为无防护窗口。[Chrome 官方说明](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/1-g8EFx2BBY)
 
-## 依赖要求 🛠️
-
-- **Golang**: `1.22+` (用于编译本项目)
-- **Chrome / Chromium**: 系统环境中需预装 `google-chrome` 或 `chromium-browser`。程序会自动寻找常见安装路径。
-
-## 运行与编译 🚀
-
-### 1. 安装依赖及配置环境
+## 运行与构建
 
 ```bash
-# 获取依赖
-go mod tidy
-
-# 复制配置文件模板
+go mod download
 cp .env.example .env
+go run .
+# 命令行 URL 优先于环境变量
+go run . --url=http://127.0.0.1:3000
+go build -o unifyx_launcher .
 ```
 
-### 2. 本地直接运行
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+go build -o unifyx_launcher.exe .
+.\unifyx_launcher.exe
+```
+
+根据部署位置配置 `BROWSER_PATH`，例如：
+
+```dotenv
+# Linux
+BROWSER_PATH=/usr/bin/chromium
+# Windows Microsoft Edge 示例
+# BROWSER_PATH='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+# Windows 解压版 Chrome for Testing 示例
+# BROWSER_PATH='C:\kiosk\chrome-win64\chrome.exe'
+# macOS
+# BROWSER_PATH='/Applications/Chromium.app/Contents/MacOS/Chromium'
+```
+
+留空时自动查找 PATH 和各平台常见安装位置。显式路径无效时直接报错，不自动切换其他浏览器。
+
+## 配置
+
+`.env` 从启动器的当前工作目录读取；系统环境变量优先于 `.env`，`--url` 优先级最高。相对路径也相对于当前工作目录，自启动服务应设置固定工作目录。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LAUNCH_URL` | `https://www.google.com` | 要展示的 Web 应用地址 |
+| `BROWSER_PATH` | 自动查找 | Microsoft Edge / Chromium / Chrome for Testing 可执行文件路径 |
+| `ENABLE_WATCHDOG` | `false` | 浏览器主进程退出后自动重启 |
+| `DISABLE_OS_SHORTCUTS` | `false` | 应用现有 Linux/GNOME 一体机锁定设置 |
+| `USER_DATA_DIR` | `./app_profile` | 专属浏览器用户数据目录，保留 Cookie 和缓存 |
+
+## 行为说明
+
+- **扩展**：启动器初始化时释放一次，浏览器重启时复用，启动器正常退出时清理；释放失败则启动失败。
+- **全屏**：全屏 API 钩子在页面 `MAIN` 环境执行；触摸和键盘事件在扩展隔离环境处理；样式由扩展直接注入。刷新、导航和匹配的 iframe 会重新加载防护。
+- **触摸**：屏蔽浏览器边缘导航、下拉刷新和双指缩放，隐藏光标；保留内部列表的正常滚动。浏览器扩展不能屏蔽操作系统自身的全部手势。
+- **重启**：首次退出等待 3 秒；连续快速退出按 3、6、12、24、30 秒退避，最多 30 秒。连续运行满 1 分钟后恢复为 3 秒。关闭看门狗时，启动或运行失败会返回非零退出码。
+- **监控范围**：看门狗监控浏览器主进程退出，不检测页面卡死、网络断开或单独的渲染进程崩溃。
+- **停止**：Ctrl+C / SIGTERM 取消重启等待并停止浏览器。Linux/macOS 先发送 SIGTERM，最多等待 5 秒后回收进程组；Windows 结束本次浏览器进程树。
+- **异常恢复**：按单实例部署约定，在每次启动浏览器前清理 Singleton 残留锁；通过 JSON 解析、临时文件替换修复崩溃标记，不修改其他配置。这不是 LevelDB 数据修复。
+- **系统锁定**：保留原有 GNOME 快捷键、工作区、热角、收藏应用、锁屏和空闲设置的修改范围。设置会持久保存，退出启动器不会恢复。
+
+## 验证
 
 ```bash
-# 默认读取 .env 配置启动
-go run main.go
-
-# 也可通过命令行参数强行指定目标 URL (优先级最高)
-go run main.go --url=http://127.0.0.1:3000
+go test ./...
+go vet ./...
 ```
 
-### 3. 构建可执行文件
-
-构建单文件可执行产物，方便在不同平台部署运行：
+可选的真实浏览器集成验证（Node.js 22+，无 npm 依赖，使用独立临时配置目录）：
 
 ```bash
-# MacOS / Linux 平台构建
-go build -o unifyx_launcher main.go
-
-# Windows 平台构建
-GOOS=windows GOARCH=amd64 go build -o unifyx_launcher.exe main.go
+BROWSER_PATH=/usr/bin/chromium node tests/browser.mjs
+UNIFYX_TEST_BROWSER=/usr/bin/chromium go test ./internal/launcher
 ```
 
-## 环境变量配置 ⚙️
-
-参考 `.env.example` 文件。以下是所有支持的 `.env` 环境变量说明：
-
-| 变量名 | 默认值 | 描述 |
-| ------ | ------ | ---- |
-| `LAUNCH_URL` | `https://www.google.com` | 应用要打开和渲染的目标网址 |
-| `ENABLE_WATCHDOG` | `false` | 设置为 `true` 时，若浏览器进程被用户关闭、或意外崩溃，进程将被看守并于 3 秒后自动重新启动 |
-| `DISABLE_OS_SHORTCUTS` | `false` | 设置为 `true` 时，尝试接管并禁用操作系统（如 GNOME）底层的系统切换快捷键，防止用户强行切出应用 |
-| `USER_DATA_DIR` | `./app_profile` | 指定 Chrome 运行时的沙盒环境缓存目录路径。推荐直接使用相对路径，用于完全独立缓存 |
-
-## 技术细节说明
-
-- 本项目由 `os/exec` 完全掌管控制系统 Chrome 进程的启停。
-- **防干扰机制（注入式扩展）**：在 Kiosk 窗口每次物理启动时，Go 程序会将内嵌在二进制文件中的 `content.js` 和 `manifest.json` 无感导出到系统临时目录，并经由 Chrome 的 `--load-extension` 参数注入，进程关闭时自动清理临时产物。
-- 任何原因导致应用异常退出的死锁缓存（LevelDB 死锁状态）都会在下一次应用生命周期的拉起（启动前）阶段被自动重置与清理，从而彻底杜绝“恢复页面”等安全还原弹窗。
+PowerShell 使用 `$env:BROWSER_PATH = '浏览器完整路径'` 设置变量后运行 `node tests/browser.mjs`。集成验证覆盖全屏钩子、iframe、快捷键、触摸限制、内部列表实际滚动和导航后重新注入；真实一体机上的系统手势与全屏显示仍需设备验收。

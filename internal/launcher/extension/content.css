@@ -1,0 +1,9 @@
+/* 声明式注入，不依赖 document_start 时 head/body 是否已创建。 */
+html, body {
+  overscroll-behavior: none !important;
+  touch-action: pan-x pan-y !important;
+}
+
+* {
+  cursor: none !important;
+}

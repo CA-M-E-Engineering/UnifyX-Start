@@ -2,3 +2,4 @@ app_profile/
 kiosk_profile/
 .env
 .DS_Store
+dist/
