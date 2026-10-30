@@ -7,7 +7,7 @@ A small Go launcher for dedicated all-in-one kiosks. It displays a web applicati
 ## Requirements
 
 - Build: **Go 1.26+**.
-- Browser: **Microsoft Edge, Chromium or Chrome for Testing 111+**, using a full desktop build with extension support.
+- Browser: **Microsoft Edge, Chromium or Chrome for Testing**, using a full desktop build with extension support. The default page-API fullscreen hook requires 111+; `NATIVE_FULLSCREEN_ONLY=true` uses native Kiosk fullscreen and supports Chromium 88+, including the hardware-adapted Chromium 91 tablet build.
 - Windows, Linux and macOS are supported. OS shortcut lockdown is implemented only for Linux/GNOME.
 - Run one launcher per device with a dedicated `USER_DATA_DIR`.
 
@@ -55,13 +55,14 @@ The launcher reads `.env` from its current working directory. Existing environme
 | `LAUNCH_URL` | `https://www.google.com` | Web application URL |
 | `BROWSER_PATH` | Auto-detect | Microsoft Edge / Chromium / Chrome for Testing executable |
 | `ENABLE_WATCHDOG` | `false` | Restart after the browser main process exits |
+| `NATIVE_FULLSCREEN_ONLY` | `false` | Use native Kiosk fullscreen without modifying page Fullscreen APIs; input/CSS protection remains enabled |
 | `DISABLE_OS_SHORTCUTS` | `false` | Apply the existing Linux/GNOME kiosk settings |
 | `USER_DATA_DIR` | `./app_profile` | Dedicated browser profile retaining cookies/cache |
 
 ## Behavior
 
 - **Extension lifecycle:** Extract once when the launcher initializes, reuse across browser restarts, and remove on normal launcher shutdown. Extraction errors stop startup.
-- **Fullscreen:** Page API hooks run in the `MAIN` world. Input handlers run in the extension's isolated world; CSS is injected declaratively. Protection is reapplied on navigation, reload and matching frames.
+- **Fullscreen:** Native Kiosk/App fullscreen flags are always used. By default, additional page API hooks run in the `MAIN` world; native-only mode omits those hooks for older embedded browsers. Input handlers and declarative CSS stay enabled in both modes and are reapplied on navigation, reload and matching frames.
 - **Touch:** Block browser edge navigation, pull-to-refresh and pinch zoom, and hide the cursor. Scrolling inside page containers remains usable. Browser extensions cannot block every OS gesture.
 - **Restart policy:** Wait 3 seconds after the first exit. Consecutive short runs back off through 3, 6, 12, 24 and 30 seconds, capped at 30. A run lasting at least one minute resets the delay to 3 seconds. With the watchdog disabled, launch/runtime failures return a nonzero exit status.
 - **Monitoring scope:** Only browser main-process exits are monitored. Page hangs, network failures and individual renderer crashes are not detected.

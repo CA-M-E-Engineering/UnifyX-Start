@@ -21,8 +21,8 @@ type App struct {
 	browser, profile, extension string
 }
 
-func New(ctx context.Context, browserPath, userDataDir string) (*App, error) {
-	browser, err := findChromeBinary(ctx, browserPath)
+func New(ctx context.Context, browserPath, userDataDir string, nativeFullscreen bool) (*App, error) {
+	browser, err := findChromeBinary(ctx, browserPath, nativeFullscreen)
 	if err != nil {
 		return nil, err
 	}
@@ -36,11 +36,14 @@ func New(ctx context.Context, browserPath, userDataDir string) (*App, error) {
 	if err := os.MkdirAll(profile, 0700); err != nil {
 		return nil, fmt.Errorf("创建用户数据目录: %w", err)
 	}
-	extension, err := setupTempExtension()
+	extension, err := setupTempExtension(nativeFullscreen)
 	if err != nil {
 		return nil, fmt.Errorf("准备防护扩展: %w", err)
 	}
 	log.Printf("渲染引擎: %s", browser)
+	if nativeFullscreen {
+		log.Println("使用浏览器原生 Kiosk 全屏；触摸和快捷键防护启用，不改写网页全屏 API。")
+	}
 	return &App{browser: browser, profile: profile, extension: extension}, nil
 }
 
@@ -50,7 +53,7 @@ func (app *App) Close() {
 	}
 }
 
-func setupTempExtension() (dir string, err error) {
+func setupTempExtension(nativeFullscreen bool) (dir string, err error) {
 	dir, err = os.MkdirTemp("", "unifyx_ext_*")
 	if err != nil {
 		return "", err
@@ -69,11 +72,43 @@ func setupTempExtension() (dir string, err error) {
 		if readErr != nil {
 			return dir, readErr
 		}
+		if nativeFullscreen && entry.Name() == "manifest.json" {
+			data, err = nativeFullscreenManifest(data)
+			if err != nil {
+				return dir, err
+			}
+		}
 		if err = os.WriteFile(filepath.Join(dir, entry.Name()), data, 0600); err != nil {
 			return dir, err
 		}
 	}
 	return dir, nil
+}
+
+// Native Kiosk fullscreen needs no MAIN-world API shim. Keep the same isolated
+// input/CSS guard, which is supported by the tablet's Chromium 91.
+func nativeFullscreenManifest(data []byte) ([]byte, error) {
+	var manifest map[string]json.RawMessage
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	var scripts []map[string]json.RawMessage
+	if err := json.Unmarshal(manifest["content_scripts"], &scripts); err != nil {
+		return nil, err
+	}
+	filtered := make([]map[string]json.RawMessage, 0, len(scripts))
+	for _, script := range scripts {
+		if string(script["world"]) != `"MAIN"` {
+			filtered = append(filtered, script)
+		}
+	}
+	manifest["minimum_chrome_version"] = json.RawMessage(`"88"`)
+	var err error
+	manifest["content_scripts"], err = json.Marshal(filtered)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(manifest, "", "  ")
 }
 
 func buildChromeArgs(url, userDataDir, extensionDir string) []string {

@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-const browserRequirement = "请安装 Microsoft Edge、Chromium 或 Chrome for Testing (111+)，并通过 BROWSER_PATH 指定可执行文件；正式版 Google Chrome 不支持本程序的扩展加载方式"
+const browserRequirement = "请使用 Microsoft Edge、Chromium 或 Chrome for Testing；原生全屏模式需支持 Manifest V3 (88+)，网页全屏 API 钩子模式需 111+；正式版 Google Chrome 不支持本程序的扩展加载方式"
 
-func findChromeBinary(ctx context.Context, configured string) (string, error) {
+func findChromeBinary(ctx context.Context, configured string, nativeFullscreen bool) (string, error) {
 	candidates := browserCandidates(runtime.GOOS)
 	if configured != "" {
 		candidates = []string{configured}
@@ -43,7 +43,7 @@ func findChromeBinary(ctx context.Context, configured string) (string, error) {
 			return "", ctx.Err()
 		}
 		if err == nil {
-			err = validateBrowserVersion(version)
+			err = validateBrowserVersion(version, nativeFullscreen)
 		}
 		if err == nil {
 			return path, nil
@@ -55,14 +55,18 @@ func findChromeBinary(ctx context.Context, configured string) (string, error) {
 
 var compatibleVersion = regexp.MustCompile(`^(?:Microsoft Edge|Chromium|Google Chrome for Testing)\s+(\d+)\.`)
 
-func validateBrowserVersion(version string) error {
+func validateBrowserVersion(version string, nativeFullscreen bool) error {
 	match := compatibleVersion.FindStringSubmatch(strings.TrimSpace(version))
 	if match == nil {
 		return fmt.Errorf("不支持的浏览器: %q", strings.TrimSpace(version))
 	}
 	major, err := strconv.Atoi(match[1])
-	if err != nil || major < 111 {
-		return fmt.Errorf("浏览器版本过旧: %q，需要 111+", version)
+	minimum := 111
+	if nativeFullscreen {
+		minimum = 88
+	}
+	if err != nil || major < minimum {
+		return fmt.Errorf("浏览器版本过旧: %q，当前模式需要 %d+", version, minimum)
 	}
 	return nil
 }

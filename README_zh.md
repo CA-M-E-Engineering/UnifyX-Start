@@ -7,7 +7,7 @@
 ## 运行要求
 
 - 编译：Go **1.26+**。
-- 浏览器：**Microsoft Edge、Chromium 或 Chrome for Testing 111+**，需为支持扩展的完整桌面浏览器。
+- 浏览器：**Microsoft Edge、Chromium 或 Chrome for Testing**，需支持扩展。默认的网页全屏 API 钩子需要 111+；设置 `NATIVE_FULLSCREEN_ONLY=true` 后使用原生 Kiosk 全屏，支持 Chromium 88+，可沿用平板硬件适配的 Chromium 91。
 - 支持 Windows、Linux、macOS；系统快捷键锁定仅在 Linux/GNOME 上实际执行。
 - 每台设备只运行一个启动器实例，使用专属的 `USER_DATA_DIR`。
 
@@ -56,13 +56,14 @@ BROWSER_PATH=/usr/bin/chromium
 | `LAUNCH_URL` | `https://www.google.com` | 要展示的 Web 应用地址 |
 | `BROWSER_PATH` | 自动查找 | Microsoft Edge / Chromium / Chrome for Testing 可执行文件路径 |
 | `ENABLE_WATCHDOG` | `false` | 浏览器主进程退出后自动重启 |
+| `NATIVE_FULLSCREEN_ONLY` | `false` | 使用原生 Kiosk 全屏，不改写网页 Fullscreen API；触摸和快捷键防护仍然启用 |
 | `DISABLE_OS_SHORTCUTS` | `false` | 应用现有 Linux/GNOME 一体机锁定设置 |
 | `USER_DATA_DIR` | `./app_profile` | 专属浏览器用户数据目录，保留 Cookie 和缓存 |
 
 ## 行为说明
 
 - **扩展**：启动器初始化时释放一次，浏览器重启时复用，启动器正常退出时清理；释放失败则启动失败。
-- **全屏**：全屏 API 钩子在页面 `MAIN` 环境执行；触摸和键盘事件在扩展隔离环境处理；样式由扩展直接注入。刷新、导航和匹配的 iframe 会重新加载防护。
+- **全屏**：始终使用浏览器原生 Kiosk/App 全屏参数。默认额外在页面 `MAIN` 环境改写全屏 API；原生模式关闭这项改写以兼容旧版嵌入式浏览器。两种模式都保留隔离环境中的触摸、键盘和 CSS 防护，刷新、导航及匹配的 iframe 会重新加载防护。
 - **触摸**：屏蔽浏览器边缘导航、下拉刷新和双指缩放，隐藏光标；保留内部列表的正常滚动。浏览器扩展不能屏蔽操作系统自身的全部手势。
 - **重启**：首次退出等待 3 秒；连续快速退出按 3、6、12、24、30 秒退避，最多 30 秒。连续运行满 1 分钟后恢复为 3 秒。关闭看门狗时，启动或运行失败会返回非零退出码。
 - **监控范围**：看门狗监控浏览器主进程退出，不检测页面卡死、网络断开或单独的渲染进程崩溃。

@@ -45,9 +45,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	nativeFullscreen, err := envBool("NATIVE_FULLSCREEN_ONLY")
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	app, err := launcher.New(ctx, os.Getenv("BROWSER_PATH"), os.Getenv("USER_DATA_DIR"))
+	app, err := launcher.New(ctx, os.Getenv("BROWSER_PATH"), os.Getenv("USER_DATA_DIR"), nativeFullscreen)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil

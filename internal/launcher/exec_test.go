@@ -36,10 +36,61 @@ func TestBrowserCompatibility(t *testing.T) {
 		"":                                        false,
 	} {
 		t.Run(version, func(t *testing.T) {
-			if err := validateBrowserVersion(version); (err == nil) != want {
+			if err := validateBrowserVersion(version, false); (err == nil) != want {
 				t.Fatalf("compatible=%v, want=%v; error=%v", err == nil, want, err)
 			}
 		})
+	}
+}
+
+func TestNativeFullscreenBrowserCompatibility(t *testing.T) {
+	for version, want := range map[string]bool{
+		"Chromium 88.0.4324.0":          true,
+		"Chromium 91.0.4472.164 stable": true,
+		"Chromium 110.0.0.0":            true,
+		"Chromium 87.0.0.0":             false,
+		"Microsoft Edge 110.0.1587.69":  true,
+		"Google Chrome 156.0.8078.47":   false,
+	} {
+		t.Run(version, func(t *testing.T) {
+			if err := validateBrowserVersion(version, true); (err == nil) != want {
+				t.Fatalf("compatible=%v, want=%v; error=%v", err == nil, want, err)
+			}
+		})
+	}
+}
+
+func TestNativeFullscreenKeepsTouchGuardWithoutMainWorldShim(t *testing.T) {
+	dir, err := setupTempExtension(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Minimum string `json:"minimum_chrome_version"`
+		Scripts []struct {
+			JS    []string `json:"js"`
+			CSS   []string `json:"css"`
+			World string   `json:"world"`
+		} `json:"content_scripts"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Minimum != "88" || len(manifest.Scripts) != 1 {
+		t.Fatalf("unexpected manifest: %s", data)
+	}
+	script := manifest.Scripts[0]
+	if script.World != "" || !slices.Equal(script.JS, []string{"content.js"}) || !slices.Equal(script.CSS, []string{"content.css"}) {
+		t.Fatalf("input protection was changed: %s", data)
+	}
+	args := buildChromeArgs("http://127.0.0.1:8080/", "profile", dir)
+	if !slices.Contains(args, "--kiosk") || !slices.Contains(args, "--start-fullscreen") {
+		t.Fatal("native fullscreen flags are missing")
 	}
 }
 
@@ -58,7 +109,7 @@ func TestEdgeDiscoveryLocations(t *testing.T) {
 }
 
 func TestExplicitBrowserPathDoesNotFallBack(t *testing.T) {
-	if _, err := findChromeBinary(context.Background(), filepath.Join(t.TempDir(), "missing-browser")); err == nil {
+	if _, err := findChromeBinary(context.Background(), filepath.Join(t.TempDir(), "missing-browser"), false); err == nil {
 		t.Fatal("invalid explicit browser path was ignored")
 	}
 }
@@ -66,7 +117,7 @@ func TestExplicitBrowserPathDoesNotFallBack(t *testing.T) {
 func TestBrowserDiscoveryCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := findChromeBinary(ctx, ""); !errors.Is(err, context.Canceled) {
+	if _, err := findChromeBinary(ctx, "", false); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation, got %v", err)
 	}
 }
@@ -76,7 +127,7 @@ func TestInstalledBrowserSetup(t *testing.T) {
 	if path == "" {
 		t.Skip("set UNIFYX_TEST_BROWSER for the installed-browser check")
 	}
-	app, err := New(context.Background(), path, t.TempDir())
+	app, err := New(context.Background(), path, t.TempDir(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +142,7 @@ func TestInstalledBrowserSetup(t *testing.T) {
 }
 
 func TestExtensionAssets(t *testing.T) {
-	dir, err := setupTempExtension()
+	dir, err := setupTempExtension(false)
 	if err != nil {
 		t.Fatal(err)
 	}
